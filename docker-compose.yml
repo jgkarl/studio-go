@@ -1,22 +1,52 @@
-# Optional local dev convenience: `docker compose up --build` (or `podman-compose up --build`).
-# Not the primary VPS deployment path — see docs/deploy.md for the git-clone + prebuilt-binary +
-# apt-installed-libvips approach that targets a plain VPS with no container runtime at all. This
-# file is still useful for a quick local try without installing Go/libvips/templ yourself.
+# Production deployment via Docker Compose + Caddy.
+# Copy .env.example to .env, fill in required values, then:
+#   docker compose up -d
 #
-# SQLite is a single file — no separate database service needed at all anymore. Everything the
-# app owns (the .db file + media-storage/) lives under one bind-mounted host directory so it's a
-# plain directory you can back up or inspect directly, not an opaque named volume.
+# The original dev-convenience notes (git-clone + prebuilt binary + systemd) are still in
+# docs/deploy.md; this file is for the container-based production path described in ops/deploy.md.
+#
+# SQLite lives on a named volume (sqlite_data → /data) so it survives container restarts and
+# image rebuilds. Use ops/backup-sqlite.sh for consistent snapshots.
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     image: localhost/studio-go:latest
-    ports:
-      - "3000:3000"
-    environment:
-      AUTH_SECRET: "${AUTH_SECRET:-dev-only-insecure-secret-change-me}"
-      ALLOW_DEV_LOGIN: "${ALLOW_DEV_LOGIN:-true}"
-    volumes:
-      - ./data:/data
+    container_name: studio-go-app
     restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      DB_PATH: /data/studio.db
+      MEDIA_STORAGE_DIR: /data/media-storage
+    volumes:
+      - sqlite_data:/data
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2
+    container_name: studio-go-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./ops/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  sqlite_data:
+  caddy_data:
+  caddy_config:

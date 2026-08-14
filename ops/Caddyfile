@@ -1,0 +1,9 @@
+# Replace yourdomain.com with your actual domain, then run: docker compose up -d
+# Caddy handles ACME/Let's Encrypt TLS automatically when this domain resolves to this server.
+#
+# To use a bare IP or test locally without a domain, replace the block with:
+#   :80 { reverse_proxy app:3000 }
+yourdomain.com {
+    encode zstd gzip
+    reverse_proxy app:3000
+}
